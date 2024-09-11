@@ -79,6 +79,6 @@ Select the Global tenant as shown below. Tenants in OpenSearch can be used to sa
 
 ![OpenSearch login confirmation](./assets/opensearch-confirm-2.webp)
 
-You should see the two dashboards (for Kubernetes events and pod logs) that were loaded in the earlier step. The dashboards are currently empty since there is no data in OpenSearch yet. Keep this browser tab open or save the dashboard URLs. We will return to the dashboards in the next sections.
+You should see the two dashboards (for Kubernetes events and pod logs) that were loaded in the earlier step. The dashboards are currently empty since there is no data in OpenSearch yet. Keep this browser tab open or save the dashboard URLs. We will return to the dashboards in the next sections. Note that the dashboard will be empty at this point. In the upcoming sections, we will complete the steps to forward observability data to OpenSearch and populate these dashboards. 
 
 ![OpenSearch login confirmation](./assets/opensearch-dashboard-launch.webp)
