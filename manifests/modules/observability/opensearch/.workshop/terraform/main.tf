@@ -67,6 +67,148 @@ resource "random_string" "suffix" {
   special = false
 }
 
+# Amazon OpenSearch Serverless (AOSS) encryption policy 
+resource "aws_opensearchserverless_security_policy" "encryption_policy" {
+  name = "${var.eks_cluster_id}-user"
+  type = "encryption"
+  policy = jsonencode(
+    {
+      "Rules" = [
+        {
+          "Resource" = ["collection/${var.eks_cluster_id}"],
+          "ResourceType" = "collection"
+        }
+      ],
+      "AWSOwnedKey" = true
+    })
+}
+
+# Amazon OpenSearch Serverless (AOSS) collection
+resource "aws_opensearchserverless_collection" "eks_collection" {
+  name = var.eks_cluster_id
+  description = "EKS Workshop collection for OpenSearch-centric observability strategy" 
+  standby_replicas = "DISABLED"
+  type = "TIMESERIES"
+
+  depends_on = [aws_opensearchserverless_security_policy.encryption_policy]
+}
+
+# AOSS network policy for public access to collections and dashboards
+resource "aws_opensearchserverless_security_policy" "network_policy" {
+  name = "${var.eks_cluster_id}"
+  type = "network"
+  description = "Public access"
+  policy = jsonencode([
+    {
+      Description = "Public access to collection and Dashboards endpoint for example collection",
+      Rules = [
+        {
+          ResourceType = "collection",
+          Resource = ["collection/${var.eks_cluster_id}"]
+        },
+        {
+          ResourceType = "dashboard"
+          Resource = ["collection/${var.eks_cluster_id}"]
+        }
+      ],
+      AllowFromPublic = true
+    }
+  ])
+}
+
+# AOSS data access policy that grants current IAM user full access
+resource "aws_opensearchserverless_access_policy" "full_access" {
+  name = "${var.eks_cluster_id}"
+  type = "data"
+  description = "Full access"
+  policy = jsonencode([
+    {
+      Rules = [
+        {
+          ResourceType = "index",
+          Resource = ["index/${var.eks_cluster_id}/*"],
+          Permission = ["aoss:*"]
+        },
+        {
+          ResourceType = "collection",
+          Resource = ["collection/${var.eks_cluster_id}"],
+          Permission = ["aoss:*"]
+        }
+      ],
+      Principal = [data.aws_caller_identity.current.arn]
+    }
+  ])
+}
+
+# IAM policy to enable writes to AOSS
+resource "aws_iam_policy" "aoss_write_access" {
+  name_prefix = "AOSSWriteAccess-"
+  description = "Grants write access to Amazon OpenSearch Serverless"
+  policy = jsonencode(
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "aoss:*",
+                "Resource": "*"  
+            }
+        ]
+    })
+}
+
+# IAM Role for Service Account (IRSA) assumed my exporter pods  
+# Use IRSA because FluentBit does not support Pod Identity yet
+resource "aws_iam_role" "opensearch_exporter_irsa" {
+  name_prefix = "${var.eks_cluster_id}-aoss-irsa-"
+  description = "IRSA for OpenSearch exporter"
+  managed_policy_arns = [aws_iam_policy.aoss_write_access.arn]
+  assume_role_policy = jsonencode(
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    "Federated": var.addon_context.eks_oidc_provider_arn
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        "${var.addon_context.eks_oidc_issuer_url}:aud": "sts.amazonaws.com"
+                    }
+                }
+            }
+        ]
+    })
+}
+
+# AOSS data access policy that grants write access to:
+#     1. Lambda function invokved by CloudWatch Subscription Filter (to export control plane logs)
+#     2. IRSA for opensearch exporter pods 
+resource "aws_opensearchserverless_access_policy" "write_access" {
+  name = "${var.eks_cluster_id}-exporter"
+  type = "data"
+  description = "Write permissions"
+  policy = jsonencode([
+    {
+      Rules = [
+        {
+          ResourceType = "index",
+          Resource = ["index/${var.eks_cluster_id}/*"],
+          Permission = ["aoss:*"]   # TODO: Restrict access
+        },
+        {
+          ResourceType = "collection",
+          Resource = ["collection/${var.eks_cluster_id}"],
+          Permission = ["aoss:*"]  # TODO: Restrict access
+        }
+      ],
+      Principal = [aws_iam_role.opensearch_exporter_irsa.arn]  # TODO: Add Lambda
+    }
+  ])
+}
+
 # Lambda execution role for OpenSearch exporter
 resource "aws_iam_role" "lambda_execution_role" {
   name = "${local.lambda_function_name}-Role-${random_string.suffix.result}"
@@ -96,11 +238,6 @@ resource "aws_iam_role" "lambda_execution_role" {
       Version = "2012-10-17"
       Statement = [
         {
-          Action   = ["es:*"]
-          Effect   = "Allow"
-          Resource = "*"
-        },
-        {
           Action   = ["ssm:GetParameter", "kms:Decrypt"]
           Effect   = "Allow"
           Resource = "*"
@@ -117,6 +254,8 @@ resource "aws_iam_role" "lambda_execution_role" {
         }
       ]
     })
+    # TODO: Add AOSS Write policy to Lambda
+    #managed_policy_arns = [aws_iam_policy.aoss_write_access.arn]
   }
 }
 
@@ -161,12 +300,4 @@ resource "aws_lambda_permission" "allow_cloudwatch_to_invoke_lambda" {
   function_name = aws_lambda_function.eks_control_plane_logs_to_opensearch.function_name
   principal     = "logs.${data.aws_region.current.name}.amazonaws.com"
   source_arn    = "${local.cw_logs_arn_prefix}:log-group:/aws/eks/${var.addon_context.eks_cluster_id}/cluster:*"
-}
-
-module "preprovision" {
-  source = "./preprovision"
-  count  = var.resources_precreated ? 0 : 1
-
-  eks_cluster_id = var.eks_cluster_id
-  tags           = var.tags
 }
