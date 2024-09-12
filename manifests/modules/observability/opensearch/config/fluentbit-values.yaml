@@ -1,18 +1,24 @@
-# OpenSearch host, awsRegion, httpUser and httpPasswd are dynamically
-# updated during provisioning.
+# OpenSearch host, awsRegion and IRSA role ARN are dynamically
+# overridden by user when executing the lab instructions. 
 # CloudWatch logs are on by default and need to be turned off for this example
 # See https://artifacthub.io/packages/helm/aws/aws-for-fluent-bit
 ---
 opensearch:
   enabled: true
   index: "eks-pod-logs"
+  host: aaaa
   tls: "On"
-  awsAuth: "Off"
+  awsAuth: "On"
+  awsServiceName: "aoss"
+  awsRegion: bbbb
+  traceOutput: "On"
   traceError: "On"
-  host: aaa
-  awsRegion: bbb
-  httpUser: ccc
-  httpPasswd: ddd
+
+serviceAccount:
+  name: fluentbit-aoss
+  create: true
+  annotations:
+    "eks.amazonaws.com/role-arn": cccc
 
 cloudWatchLogs:
   enabled: false

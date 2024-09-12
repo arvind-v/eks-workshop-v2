@@ -69,7 +69,7 @@ resource "random_string" "suffix" {
 
 # Amazon OpenSearch Serverless (AOSS) encryption policy 
 resource "aws_opensearchserverless_security_policy" "encryption_policy" {
-  name = "${var.eks_cluster_id}-user"
+  name = var.eks_cluster_id
   type = "encryption"
   policy = jsonencode(
     {
