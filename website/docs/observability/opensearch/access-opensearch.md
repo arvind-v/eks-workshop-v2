@@ -22,9 +22,9 @@ $ curl -s --aws-sigv4 "aws:amz:$AWS_REGION:aoss" -H "osd-xsrf: true" \
 Retrieve the OpenSearch dashboard URL:
 
 ```bash
-$ printf "\n%s/_dashboards/app/dashboards\n\n" "$OPENSEARCH_DASHBOARD_ENDPOINT" 
-
-OpenSearch dashboard: <OpenSearch Dashboard URL>
+$ printf "\nhttps://%s/_dashboards/app/dashboards\n\n" "$OPENSEARCH_HOST" 
+ 
+https://<host>.<region>.aoss.amazonaws.com/_dashboards/app/dashboards
 ```
 
 Point your browser to the OpenSearch dashboard URL above and use the credentials to login.  You should see the dashboards that were loaded in the earlier step. The dashboards are currently empty since there is no data in OpenSearch yet. Keep this browser tab open or save the dashboard URLs. We will return to the dashboards in the next sections. Note that the dashboard will be empty at this point. In the upcoming sections, we will complete the steps to forward observability data to OpenSearch and populate these dashboards.

@@ -279,8 +279,8 @@ function buildRequest(endpoint, body) {
       "Content-Type": "application/json",
       Host: endpoint,
       "Content-Length": Buffer.byteLength(body),
-      "X-Amz-Security-Token": process.env.AWS_SESSION_TOKEN,
-      "X-Amz-Date": datetime,
+      "x-amz-security-token": process.env.AWS_SESSION_TOKEN,
+      "x-amz-date": datetime,
     },
   };
 

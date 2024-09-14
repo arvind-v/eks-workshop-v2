@@ -21,8 +21,9 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  cw_logs_arn_prefix   = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}"
-  lambda_function_name = "${var.addon_context.eks_cluster_id}-control-plane-logs"
+  cw_logs_arn_prefix = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}"
+  opensearch_parameter_path = "/eksworkshop/${var.eks_cluster_id}/opensearch/host"
+  lambda_function_name = "${var.eks_cluster_id}-export-to-opensearch"
 
   # ARNs for Lambda Extension Layer that provides caching of SSM parameter store values
   parameter_lambda_extension_arns = {
@@ -61,12 +62,6 @@ locals {
   }
 }
 
-# Random suffix for IAM roles, policies
-resource "random_string" "suffix" {
-  length  = 6
-  special = false
-}
-
 # Amazon OpenSearch Serverless (AOSS) encryption policy 
 resource "aws_opensearchserverless_security_policy" "encryption_policy" {
   name = var.eks_cluster_id
@@ -89,72 +84,54 @@ resource "aws_opensearchserverless_collection" "eks_collection" {
   description = "EKS Workshop collection for OpenSearch-centric observability strategy" 
   standby_replicas = "DISABLED"
   type = "TIMESERIES"
+  tags = var.tags
 
   depends_on = [aws_opensearchserverless_security_policy.encryption_policy]
 }
 
 # AOSS network policy for public access to collections and dashboards
 resource "aws_opensearchserverless_security_policy" "network_policy" {
-  name = "${var.eks_cluster_id}"
+  name = var.eks_cluster_id
   type = "network"
   description = "Public access"
   policy = jsonencode([
     {
-      Description = "Public access to collection and Dashboards endpoint for example collection",
-      Rules = [
+      "Description" = "Public access to collection and Dashboards endpoint for example collection",
+      "Rules" = [
         {
-          ResourceType = "collection",
-          Resource = ["collection/${var.eks_cluster_id}"]
+          "ResourceType" = "collection",
+          "Resource" = ["collection/${var.eks_cluster_id}"]
         },
         {
-          ResourceType = "dashboard"
-          Resource = ["collection/${var.eks_cluster_id}"]
+          "ResourceType" = "dashboard"
+          "Resource" = ["collection/${var.eks_cluster_id}"]
         }
       ],
-      AllowFromPublic = true
+      "AllowFromPublic" = true
     }
   ])
 }
 
 # AOSS data access policy that grants current IAM user full access
 resource "aws_opensearchserverless_access_policy" "full_access" {
-  name = "${var.eks_cluster_id}"
+  name = var.eks_cluster_id
   type = "data"
   description = "Full access"
-  policy = jsonencode([
-    {
-      Rules = [
-        {
-          ResourceType = "index",
-          Resource = ["index/${var.eks_cluster_id}/*"],
-          Permission = ["aoss:*"]
-        },
-        {
-          ResourceType = "collection",
-          Resource = ["collection/${var.eks_cluster_id}"],
-          Permission = ["aoss:*"]
-        }
-      ],
-      Principal = [data.aws_caller_identity.current.arn]
-    }
-  ])
-}
-
-# IAM policy to enable writes to AOSS
-resource "aws_iam_policy" "aoss_write_access" {
-  name_prefix = "AOSSWriteAccess-"
-  description = "Grants write access to Amazon OpenSearch Serverless"
-  policy = jsonencode(
-    {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": "aoss:*",
-                "Resource": "*"  
-            }
-        ]
-    })
+  policy = jsonencode([{
+    "Rules" = [
+      {
+        "ResourceType" = "index",
+        "Resource" = ["index/${var.eks_cluster_id}/*"],
+        "Permission" = ["aoss:*"]
+      },
+      {
+        "ResourceType" = "collection",
+        "Resource" = ["collection/${var.eks_cluster_id}"],
+        "Permission" = ["aoss:*"]
+      }
+    ],
+    "Principal" = [data.aws_caller_identity.current.arn]
+  }])
 }
 
 # IAM Role for Service Account (IRSA) assumed my exporter pods  
@@ -162,25 +139,37 @@ resource "aws_iam_policy" "aoss_write_access" {
 resource "aws_iam_role" "opensearch_exporter_irsa" {
   name_prefix = "${var.eks_cluster_id}-aoss-irsa-"
   description = "IRSA for OpenSearch exporter"
-  managed_policy_arns = [aws_iam_policy.aoss_write_access.arn]
-  assume_role_policy = jsonencode(
-    {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Principal": {
-                    "Federated": var.addon_context.eks_oidc_provider_arn
-                },
-                "Action": "sts:AssumeRoleWithWebIdentity",
-                "Condition": {
-                    "StringEquals": {
-                        "${var.addon_context.eks_oidc_issuer_url}:aud": "sts.amazonaws.com"
-                    }
-                }
-            }
-        ]
+ 
+  inline_policy {
+    name = "aoss-exporter-policy"
+    policy = jsonencode({
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "aoss:*",
+          "Resource": "*"  
+        }
+      ]
     })
+  }
+  assume_role_policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "Federated": var.addon_context.eks_oidc_provider_arn
+        },
+        "Action": "sts:AssumeRoleWithWebIdentity",
+        "Condition": {
+          "StringEquals": { 
+            "${var.addon_context.eks_oidc_issuer_url}:aud": "sts.amazonaws.com" 
+          }
+        }
+      }
+    ]
+  })
 }
 
 # AOSS data access policy that grants write access to:
@@ -189,31 +178,29 @@ resource "aws_iam_role" "opensearch_exporter_irsa" {
 resource "aws_opensearchserverless_access_policy" "write_access" {
   name = "${var.eks_cluster_id}-exporter"
   type = "data"
-  description = "Write permissions"
-  policy = jsonencode([
-    {
-      Rules = [
-        {
-          ResourceType = "index",
-          Resource = ["index/${var.eks_cluster_id}/*"],
-          Permission = ["aoss:*"]   # TODO: Restrict access
-        },
-        {
-          ResourceType = "collection",
-          Resource = ["collection/${var.eks_cluster_id}"],
-          Permission = ["aoss:*"]  # TODO: Restrict access
-        }
-      ],
-      Principal = [aws_iam_role.opensearch_exporter_irsa.arn]  # TODO: Add Lambda
-    }
-  ])
+  description = "Write permissions for Observability exporters"
+  policy = jsonencode([{
+    Rules = [
+      {
+        ResourceType = "index",
+        Resource = ["index/${var.eks_cluster_id}/*"],
+        Permission = ["aoss:*"]   # TODO: Restrict access
+      },
+      {
+        ResourceType = "collection",
+        Resource = ["collection/${var.eks_cluster_id}"],
+        Permission = ["aoss:*"]  # TODO: Restrict access
+      }
+    ],
+    Principal = [aws_iam_role.opensearch_exporter_irsa.arn,
+                  aws_iam_role.lambda_execution_role.arn]  
+  }])
 }
 
 # Lambda execution role for OpenSearch exporter
 resource "aws_iam_role" "lambda_execution_role" {
-  name = "${local.lambda_function_name}-Role-${random_string.suffix.result}"
+  name_prefix = "${var.eks_cluster_id}-exporter-"
 
-  # Trust relationship 
   assume_role_policy = jsonencode({
     "Version" : "2012-10-17",
     "Statement" : [
@@ -228,34 +215,33 @@ resource "aws_iam_role" "lambda_execution_role" {
     ]
   })
 
-  # Attach inline policies for Lambda function to: 
-  #    Write to OpenSearch index
-  #    Get SSM parameter with OpenSearch host 
-  #    Write CloudWatch logs for this Lambda function
   inline_policy {
-    name = "policy-${random_string.suffix.result}"
+    name = "lambda-execution-policy"
     policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
+      "Version" = "2012-10-17"
+      "Statement" = [
         {
-          Action   = ["ssm:GetParameter", "kms:Decrypt"]
-          Effect   = "Allow"
-          Resource = "*"
+          "Action" = ["aoss:*"] # TODO: Restrict access
+          "Effect" = "Allow"
+          "Resource" = "*"
+        },        
+        {
+          "Action" = ["ssm:GetParameter"]
+          "Effect" = "Allow"
+          "Resource" = aws_ssm_parameter.opensearch_host.arn
         },
         {
-          Action   = ["logs:CreateLogGroup"]
-          Effect   = "Allow"
-          Resource = local.cw_logs_arn_prefix
+          "Action" = ["logs:CreateLogGroup"]
+          "Effect" = "Allow"
+          "Resource" = local.cw_logs_arn_prefix
         },
         {
-          Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-          Effect   = "Allow"
-          Resource = "${local.cw_logs_arn_prefix}:log-group:/aws/lambda/${local.lambda_function_name}:*"
+          "Action" = ["logs:CreateLogStream", "logs:PutLogEvents"]
+          "Effect" = "Allow"
+          "Resource" = "${local.cw_logs_arn_prefix}:log-group:/aws/lambda/${local.lambda_function_name}:*"
         }
       ]
     })
-    # TODO: Add AOSS Write policy to Lambda
-    #managed_policy_arns = [aws_iam_policy.aoss_write_access.arn]
   }
 }
 
@@ -267,24 +253,26 @@ data "archive_file" "lambda" {
 }
 
 # Create Lambda function to export logs to OpenSearch
-resource "aws_lambda_function" "eks_control_plane_logs_to_opensearch" {
-  filename      = "${path.module}/function.zip"
+resource "aws_lambda_function" "export_to_opensearch" {
+  filename = "${path.module}/function.zip"
   function_name = local.lambda_function_name
-  role          = aws_iam_role.lambda_execution_role.arn
-  handler       = "logs-to-opensearch.handler"
+  role = aws_iam_role.lambda_execution_role.arn
+  handler = "logs-to-opensearch.handler"
 
   # Attach Lambda Layer for AWS Parameters and Secrets Lambda Extension ARNs
   layers = [local.parameter_lambda_extension_arns[data.aws_region.current.name]]
 
   source_code_hash = data.archive_file.lambda.output_base64sha256
 
-  runtime = "nodejs18.x"
+  runtime = "nodejs20.x"
+
+  tags = var.tags
 
   environment {
     variables = {
-      OPENSEARCH_HOST_PARAMETER_PATH = "/eksworkshop/${var.addon_context.eks_cluster_id}/opensearch/host"
-      OPENSEARCH_INDEX_NAME          = "eks-control-plane-logs"
-      SSM_PARAMETER_STORE_TTL        = 300
+      OPENSEARCH_HOST_PARAMETER_PATH = local.opensearch_parameter_path
+      OPENSEARCH_INDEX_NAME = "eks-control-plane-logs"
+      SSM_PARAMETER_STORE_TTL = 300
     }
   }
 }
@@ -295,9 +283,19 @@ resource "aws_lambda_function" "eks_control_plane_logs_to_opensearch" {
 # The logs group is created later when workshop participant (manually) run the 
 # step to enable EKS Control Plane Logs.  
 resource "aws_lambda_permission" "allow_cloudwatch_to_invoke_lambda" {
-  statement_id  = "AllowExecutionFromCloudWatch_${random_string.suffix.result}"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.eks_control_plane_logs_to_opensearch.function_name
-  principal     = "logs.${data.aws_region.current.name}.amazonaws.com"
-  source_arn    = "${local.cw_logs_arn_prefix}:log-group:/aws/eks/${var.addon_context.eks_cluster_id}/cluster:*"
+  statement_id = "AllowExecutionFromCloudWatch"
+  action = "lambda:InvokeFunction"
+  function_name = local.lambda_function_name
+  principal = "logs.${data.aws_region.current.name}.amazonaws.com"
+  source_arn = "${local.cw_logs_arn_prefix}:log-group:/aws/eks/${var.addon_context.eks_cluster_id}/cluster:*"
+}
+
+# Store OpenSearch host in parameter store
+resource "aws_ssm_parameter" "opensearch_host" {
+  name = local.opensearch_parameter_path
+  description = "OpenSearch domain host endpoint"
+  type = "String"
+  value = aws_opensearchserverless_collection.eks_collection.arn
+
+  tags = var.tags
 }

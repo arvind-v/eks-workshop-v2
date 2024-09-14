@@ -6,13 +6,13 @@
 opensearch:
   enabled: true
   index: "eks-pod-logs"
-  host: aaaa
   tls: "On"
   awsAuth: "On"
   awsServiceName: "aoss"
-  awsRegion: bbbb
   traceOutput: "On"
   traceError: "On"
+  host: aaaa
+  awsRegion: bbbb
 
 serviceAccount:
   name: fluentbit-aoss

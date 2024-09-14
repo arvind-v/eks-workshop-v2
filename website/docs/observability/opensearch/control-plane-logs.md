@@ -70,40 +70,7 @@ You will find at least one log stream associated with each of the control plane 
 
 Navigate to the Lambda function named [eks-workshop-control-plane-logs](https://console.aws.amazon.com/lambda/home#/functions/eks-workshop-control-plane-logs) to export control plane logs has been pre-provisioned during the `prepare-environment` step. Notice that the Lambda function does not have any triggers setup at the moment.
 
-There are two steps to connect up the Lambda function to CloudWatch Logs and to OpenSearch as shown in the overview diagram above:
-
-1. Setup an OpenSearch role that allows the Lambda function to write to the OpenSearch index named `eks-control-plane-logs`
-2. Configure a subscription filter for the CloudWatch log group with the Lambda function as its destination
-
-The Lambda function ARN and its IAM role ARN are already available as environment variables:
-
-```bash
-$ echo $LAMBDA_ARN
-$ echo $LAMBDA_ROLE_ARN
-```
-
-Grant the Lambda exporter function permissions to create the OpenSearch index named `eks-control-plane-logs` and write to it. The first command creates a new role within the OpenSearch domain with the necessary permissions. The second command adds a role mapping specifying the Lambda function's execution role ARN.
-
-```bash
-$ curl -s -XPUT "https://${OPENSEARCH_HOST}/_plugins/_security/api/roles/lambda_role" \
-    -u $OPENSEARCH_USER:$OPENSEARCH_PASSWORD -H 'Content-Type: application/json' \
-    --data-raw '{"cluster_permissions": ["*"], "index_permissions": [{"index_patterns": ["eks-control-plane-logs*"], "allowed_actions": ["*"]}]}' \
-    | jq .
-{
-  "status": "CREATED",
-  "message": "'lambda_role' created."
-}
-
-$ curl -s -XPUT "https://${OPENSEARCH_HOST}/_plugins/_security/api/rolesmapping/lambda_role" \
-    -u $OPENSEARCH_USER:$OPENSEARCH_PASSWORD -H 'Content-Type: application/json' \
-    --data-raw '{"backend_roles": ["'"$LAMBDA_ROLE_ARN"'"]}' | jq .
-{
-  "status": "CREATED",
-  "message": "'lambda_role' created."
-}
-```
-
-Setup a subscription filter for the CloudWatch log group that specifies the Lambda function as its destination. Notice that the command specifies the `/aws/eks/eks-workshop/cluster` log group name and the Lambda function ARN. The first command creates the filter and the second command retrieves the filter details.
+Configure a subscription filter for the CloudWatch log group that triggers a Lambda function. The Lambda function  has been configured during the `prepare-environment` step and its ARN is available in the `$LAMBDA_ARN` environment variable. The command specifies the `/aws/eks/eks-workshop/cluster` log group name and the Lambda function ARN. 
 
 ```bash
 $ aws logs put-subscription-filter \

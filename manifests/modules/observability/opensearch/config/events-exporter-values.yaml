@@ -1,4 +1,4 @@
-# OpenSearch username, password and host are dynamically
+# OpenSearch host and IRSA ARN are dynamically
 # updated during provisioning process
 # See https://github.com/jkroepke/resmoio-kubernetes-event-exporter and
 # https://artifacthub.io/packages/helm/bitnami/kubernetes-event-exporter
@@ -32,7 +32,11 @@ config:
         useEventID: true
         # Dots in labels and annotation keys are replaced by underscores.
         deDot: true
-        username: aaa
-        password: bbb
         hosts:
-          - ccc
+          - aaaa
+
+serviceAccount:
+  name: events-aoss
+  create: true
+  annotations:
+    "eks.amazonaws.com/role-arn": bbbb

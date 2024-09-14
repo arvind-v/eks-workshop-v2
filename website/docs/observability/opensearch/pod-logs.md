@@ -36,7 +36,7 @@ $ helm upgrade fluentbit eks/aws-for-fluent-bit --install \
     -f ~/environment/eks-workshop/modules/observability/opensearch/config/fluentbit-values.yaml \
     --set="opensearch.host"="$OPENSEARCH_HOST" \
     --set="opensearch.awsRegion"=$AWS_REGION \
-    --set=serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn="$OPENSEARCH_USER" \
+    --set=serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn="$OPENSEARCH_IRSA_ARN" \
     --wait
 
 $ kubectl get daemonset -n opensearch-exporter
