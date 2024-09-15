@@ -87,7 +87,7 @@ $ aws logs describe-subscription-filters \
       "filterName": "${EKS_CLUSTER_NAME} EKS Control Plane Logs to OpenSearch",
       "logGroupName": "/aws/eks/eks-workshop/cluster",
       "filterPattern": "",
-      "destinationArn": "arn:aws:lambda:us-west-2:1234567890:function:control-plane-logs",
+      "destinationArn": "arn:aws:lambda:us-west-2:1234567890:function:${EKS_CLUSTER_NAME}-export-to-opensearch",
       "distribution": "ByLogStream",
       "creationTime": 1699659802922
     }
@@ -102,13 +102,9 @@ This completes the steps necessary to feed control plane logs from EKS to OpenSe
 Access the control plane logs dashboard from the dashboard landing page we saw earlier or use the command below to obtain its coordinates:
 
 ```bash
-$ printf "\nPod logs dashboard: https://%s/_dashboards/app/dashboards#/view/1a1c3a70-831a-11ee-8baf-a5d5c77ada98 \
-        \nUserName: %q \nPassword: %q \n\n" \
-        "$OPENSEARCH_HOST" "$OPENSEARCH_USER" "$OPENSEARCH_PASSWORD"
-
-Pod logs dashboard: <OpenSearch Dashboard URL>
-Username: <user name>
-Password: <password>
+$ printf "\nhttps://%s/_dashboards/app/dashboards\n\n" "$OPENSEARCH_HOST" 
+ 
+https://<host>.<region>.aoss.amazonaws.com/_dashboards/app/dashboards
 ```
 
 The dashboard provides a histogram and detailed messages for each of the five control plane logs types (in alphabetical order) - Kubernetes API server component logs, Audit logs, Authenticator logs, Controller Manager logs and Scheduler logs.
