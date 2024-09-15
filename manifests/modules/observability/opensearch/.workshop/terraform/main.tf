@@ -295,7 +295,7 @@ resource "aws_ssm_parameter" "opensearch_host" {
   name = local.opensearch_parameter_path
   description = "OpenSearch domain host endpoint"
   type = "String"
-  value = aws_opensearchserverless_collection.eks_collection.arn
+  value = replace(aws_opensearchserverless_collection.eks_collection.collection_endpoint, "https://", "")
 
   tags = var.tags
 }
