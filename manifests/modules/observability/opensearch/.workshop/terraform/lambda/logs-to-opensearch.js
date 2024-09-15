@@ -1,14 +1,25 @@
 /*
  * This Lambda function is used as part of a CloudWatch Logs subscription
- * to export EKS Control Plane Logs to OpenSearch. It retrieves and caches the
- * OpenSearch coordinates from SSM Parameter Store.
+ * to export EKS Control Plane Logs to Amazon OpenSearch Serverless (AOSS). 
+ * It retrieves and caches the OpenSearch coordinates from SSM Parameter Store.
  *
  * The original code was generated using the steps described here:
  * https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL_OpenSearch_Stream.html
+ *
  * The generated code has been modified to:
  *   - Retrieve the OpenSearch endpoint from SSM Parameter Store
  *   - Use the AWS Lambda extension to cache the OpenSearch endpoint
- *   - Use the OPENSEARCH_INDEX_NAME environment variable as the destination OpenSearch index
+ *   - Use the OPENSEARCH_INDEX_NAME environment variable as the target index
+ *   - Remove the _id field in transform(payload) function (_id is not 
+ *     supported for Timeseries indices, which we are using for this purpose)
+ *   - Added the "X-Amz-Content-Sha256" request header. Without this you get 
+ *     a HTTP 403 with x-aoss-response-hint: X01:gw-helper-deny in the 
+ *     response headers from AOSS.
+ *
+ * References: 
+ * https://repost.aws/questions/QUxXol2_SQRb-7iYoouyjl8A/aws-opensearch-serverless-bulk-api-document-id-is-not-supported-in-create-index-operation-request
+ * https://docs.aws.amazon.com/opensearch-service/latest/developerguide/serverless-clients.html#serverless-signing
+ *
  */
 // v1.1.2
 var http = require("http");
@@ -139,6 +150,7 @@ function transform(payload) {
   payload.logEvents.forEach(function (logEvent) {
     // Name of OpenSearch Index to store logs
     var indexName = process.env.OPENSEARCH_INDEX_NAME;
+    var action = { index: { _index: indexName } };
 
     var source = buildSource(logEvent.message, logEvent.extractedFields);
     source["@id"] = logEvent.id;
@@ -147,10 +159,6 @@ function transform(payload) {
     source["@owner"] = payload.owner;
     source["@log_group"] = payload.logGroup;
     source["@log_stream"] = payload.logStream;
-
-    var action = { index: {} };
-    action.index._index = indexName;
-    action.index._id = logEvent.id;
 
     bulkRequestBody +=
       [JSON.stringify(action), JSON.stringify(source)].join("\n") + "\n";
@@ -265,6 +273,7 @@ function buildRequest(endpoint, body) {
   var service = endpointParts[3];
   var datetime = new Date().toISOString().replace(/[:\-]|\.\d{3}/g, "");
   var date = datetime.substr(0, 8);
+  var sha256Body = hash(body, "hex")
   var kDate = hmac("AWS4" + process.env.AWS_SECRET_ACCESS_KEY, date);
   var kRegion = hmac(kDate, region);
   var kService = hmac(kRegion, service);
@@ -279,10 +288,11 @@ function buildRequest(endpoint, body) {
       "Content-Type": "application/json",
       Host: endpoint,
       "Content-Length": Buffer.byteLength(body),
-      "x-amz-security-token": process.env.AWS_SESSION_TOKEN,
-      "x-amz-date": datetime,
+      "X-Amz-Security-Token": process.env.AWS_SESSION_TOKEN,
+      "X-Amz-Date": datetime,
+      "X-Amz-Content-Sha256": sha256Body // Extra header required for AOSS
     },
-  };
+  }; 
 
   var canonicalHeaders = Object.keys(request.headers)
     .sort(function (a, b) {
@@ -307,7 +317,7 @@ function buildRequest(endpoint, body) {
     canonicalHeaders,
     "",
     signedHeaders,
-    hash(request.body, "hex"),
+    sha256Body,
   ].join("\n");
 
   var credentialString = [date, region, service, "aws4_request"].join("/");
