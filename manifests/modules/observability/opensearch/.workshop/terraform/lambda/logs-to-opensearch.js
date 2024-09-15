@@ -224,6 +224,7 @@ function post(body, endpoint, callback) {
   var request = https
     .request(requestParams, function (response) {
       var responseBody = "";
+
       response.on("data", function (chunk) {
         responseBody += chunk;
       });
@@ -252,6 +253,7 @@ function post(body, endpoint, callback) {
           delete info.items;
           error = {
             statusCode: response.statusCode,
+            responseHeaders: response.headers,
             responseBody: info,
           };
         }
