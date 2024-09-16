@@ -1,6 +1,6 @@
 # OpenSearch host and IRSA ARN are dynamically
 # updated during provisioning process
-# See https://github.com/jkroepke/resmoio-kubernetes-event-exporter and
+# See https://github.com/resmoio/kubernetes-event-exporter and
 # https://artifacthub.io/packages/helm/bitnami/kubernetes-event-exporter
 # for full set of options
 #
@@ -8,9 +8,11 @@
 #
 # deDot is set to true to avoid mapper errors
 # See https://github.com/resmoio/kubernetes-event-exporter/issues/20
+# See https://github.com/aws-observability/aws-sigv4-proxy-admission-controller
+# See 
 ---
 config:
-  logLevel: warn
+  logLevel: debug
   logFormat: json
   # To address client-side throttling errors
   kubeQPS: 100
@@ -33,10 +35,28 @@ config:
         # Dots in labels and annotation keys are replaced by underscores.
         deDot: true
         hosts:
-          - aaaa
+          - http://localhost:9000
+
+sidecars:
+  - name: aws-sigv4-proxy-sidecar
+    image: public.ecr.aws/aws-observability/aws-sigv4-proxy:latest
+    imagePullPolicy: IfNotPresent
+    ports:
+      - containerPort: 9000    
+    args:
+      - --host
+      - aaa
+      - --port
+      - :9000
+      - --region
+      - bbbb
+      - --name
+      - aoss
+      - -v
 
 serviceAccount:
   name: events-aoss
   create: true
+  automountServiceAccountToken: true  
   annotations:
-    "eks.amazonaws.com/role-arn": bbbb
+    "eks.amazonaws.com/role-arn": ccc

@@ -30,14 +30,16 @@ The following diagram provides an overview of the setup for this section. `kuber
 
 Deploy Kubernetes events exporter and configure it to send events to our OpenSearch domain. The base configuration is available [here](https://github.com/VAR::MANIFESTS_OWNER/VAR::MANIFESTS_REPOSITORY/tree/VAR::MANIFESTS_REF/manifests/modules/observability/opensearch/config/events-exporter-values.yaml). The OpenSearch credentials we retrieved earlier are being used to configure the exporter. The second command verifies that the Kubernetes events pod is running.
 
+NOTE: HAS TO BE A NEW NAMESPACE FOR THE ADMSISSION CONTROLLER 
+
 ```bash timeout=120 wait=30
 $ helm install events-to-opensearch \
     oci://registry-1.docker.io/bitnamicharts/kubernetes-event-exporter \
     --namespace opensearch-exporter --create-namespace \
     -f ~/environment/eks-workshop/modules/observability/opensearch/config/events-exporter-values.yaml \
-    --set="config.receivers[0].opensearch.username"="$OPENSEARCH_USER" \
-    --set="config.receivers[0].opensearch.password"="$OPENSEARCH_PASSWORD" \
-    --set="config.receivers[0].opensearch.hosts[0]"="https://$OPENSEARCH_HOST" \
+    --set=sidecars[0].args[1]=$OPENSEARCH_HOST" \
+    --set=sidecars[0].args[5]=$AWS_REGION" \
+    --set=serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn="$OPENSEARCH_IRSA_ARN" \
     --wait
 ...
 NAME: events-to-opensearch
